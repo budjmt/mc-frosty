@@ -29,10 +29,12 @@ from PIL import Image
 
 TILE_SIZE = 8
 
+
 def value_of(color):
     if len(color) > 3 and color[3] == 0:
         return -math.inf
-    return sum(a * b for a,b in zip(color, [.299, .587, .114]))
+    return sum(a * b for a, b in zip(color, [0.299, 0.587, 0.114]))
+
 
 def sort_palette(image: Image) -> Image:
     # group color channels into full-channel color lists
@@ -40,19 +42,23 @@ def sort_palette(image: Image) -> Image:
     # batched is only available in Python 3.12
     try:
         from itertools import batched
+
         colors = batched(image.palette.tobytes(), n=channels)
     except:
         stream = image.palette.tobytes()
-        colors = [stream[pos:pos+channels] for pos in range(0, len(stream), channels)]
+        colors = [
+            stream[pos : pos + channels] for pos in range(0, len(stream), channels)
+        ]
     palette = list(enumerate(value_of(color) for color in colors))
     # sort non-transparent colors by value and save only index order
     palette = [idx for (idx, _) in sorted(palette, key=lambda gray: gray[1])]
     return image.remap_palette(palette)
 
+
 def tile_data(image: Image) -> bytes:
     """
     Converts an 8x8 image to a tile bytestream.
-    The bytes will be ordered into two planes, where the first plane    
+    The bytes will be ordered into two planes, where the first plane
     holds the low-order bit of each pixel and the second plane holds
     the high-order bit.
     """
@@ -64,17 +70,18 @@ def tile_data(image: Image) -> bytes:
             # consolidate parallel stream of bits into parallel stream of bytes
             lambda a, b: (a[0] << 1 | b[0], a[1] << 1 | b[1]),
             (
-                (px & 0b01, px >> 1 & 0b01) for px in 
-                (image.getpixel((x, y)) for x in range(image.width))
+                (px & 0b01, px >> 1 & 0b01)
+                for px in (image.getpixel((x, y)) for x in range(image.width))
             ),
-            (0, 0)
+            (0, 0),
         )
         for y in range(image.height)
     ]
-    #convert sequence of pairs to pair of sequences
+    # convert sequence of pairs to pair of sequences
     planes = zip(*rows)
     # concatenate sequences (low plane then high plane) and generate bytestream
     return bytes(chain(*planes))
+
 
 def transcribe_chr(image: Image, outfile: Path, width=1, limit=0, columns=False):
     """
@@ -87,40 +94,54 @@ def transcribe_chr(image: Image, outfile: Path, width=1, limit=0, columns=False)
         limit: the stream will be cut off before it goes over this many BYTES
         columns: set to True to scan the source file in column-major order.
     """
-    image = image.convert('RGBA' if image.has_transparency_data else 'RGB')
+    image = image.convert("RGBA" if image.has_transparency_data else "RGB")
     image = image.quantize(colors=4)
     image = sort_palette(image)
     try:
         if image.height % TILE_SIZE != 0 or image.width % TILE_SIZE != 0:
-            print(f"WARNING: image dimensions ({image.width}, {image.height}) has margins over tile size {TILE_SIZE} that will be ignored.", file=stderr)
+            print(
+                f"WARNING: image dimensions ({image.width}, {image.height}) has margins over tile size {TILE_SIZE} that will be ignored.",
+                file=stderr,
+            )
         with open(outfile, "wb") as file:
-            available = limit if limit != 0 else 0x1000   # default bank size
+            available = limit if limit != 0 else 0x1000  # default bank size
             count = 0
             # iterate over tiles in image
             for major in range(TILE_SIZE, image.height + 1, TILE_SIZE):
-                for minor in range(TILE_SIZE, image.width + 1, TILE_SIZE): 
-                    x, y = (major, minor) if columns else (minor, major)    # supports tall sprites
+                for minor in range(TILE_SIZE, image.width + 1, TILE_SIZE):
+                    x, y = (
+                        (major, minor) if columns else (minor, major)
+                    )  # supports tall sprites
                     tile = tile_data(image.crop((x - TILE_SIZE, y - TILE_SIZE, x, y)))
                     if available < len(tile):
                         # hard limit on file size?
                         if limit != 0:
                             raise StopIteration
                         else:
-                            print(f"WARNING: source file \"{outfile.name}\" contains more tiles than can fit in a 4k CHR archive.", file=stderr)
-                            available = math.inf    # disable further warnings
+                            print(
+                                f'WARNING: source file "{outfile.name}" contains more tiles than can fit in a 4k CHR archive.',
+                                file=stderr,
+                            )
+                            available = math.inf  # disable further warnings
                     available -= len(tile)
-                    count += 1;
+                    count += 1
                     file.write(tile)
             # pad file to specified tile width
             count %= width
             if count > 0:
-                file.write(bytes(0 for _ in range((width - count) * TILE_SIZE + TILE_SIZE)))
+                file.write(
+                    bytes(0 for _ in range((width - count) * TILE_SIZE + TILE_SIZE))
+                )
     except StopIteration:
         # file larger than specified limit
-        print(f"source file \"{outfile.name}\" contains more tiles than can fit in the specified archive size.", file=stderr)
+        print(
+            f'source file "{outfile.name}" contains more tiles than can fit in the specified archive size.',
+            file=stderr,
+        )
+
 
 if __name__ == "__main__":
-    #TODO: support user input for file padding, size limit, and scan order
+    # TODO: support user input for file padding, size limit, and scan order
 
     parser = argparse.ArgumentParser(
         description=__doc__,
