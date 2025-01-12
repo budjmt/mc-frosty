@@ -1,3 +1,4 @@
+set(Python3_FIND_VIRTUALENV FIRST)
 find_package(Python3 REQUIRED)
 
 # This .asm file uses .incbin to compile CHR data into a library
