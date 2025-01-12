@@ -96,9 +96,10 @@ struct NameTable : Block {
 }
 
 struct Palette : Block {
-    static constexpr usize blockSize = 16; // each byte is 1 / 256 colors
+    static constexpr usize blockSize = numPalettes * numColors; // each byte is a color index
 
     static constexpr usize numColors = 4;
+    static constexpr usize numPalettes = 4;
 
     // colors vary based on the hardware in each unit,
     // so the color codes are just approximations
@@ -118,13 +119,13 @@ struct Palette : Block {
         RASPBERRY           = 0x04, // #ab004a
         CAYENNE             = 0x06, // #cc0000
         SCARLET             = 0x05, // #de0012
-        RED_17              = 0x17, // #f00000
+        OFF_RED             = 0x17, // #f00000
         RED                 = 0x16, // #ff0000
         CRIMSON             = 0x15, // #ff0037
-        DARK_ORANGE         = 0x26, // #ff6c0a
+        PUMPKIN             = 0x26, // #ff6c0a
         ORANGE              = 0x27, // #ff8400
-        CHEESE_ORANGE       = 0x28, // #ffaa00
-        CANTALOUPE_ORANGE   = 0x36, // #ffc69e
+        CHEDDAR             = 0x28, // #ffaa00
+        CANTALOUPE          = 0x36, // #ffc69e
         DARK_YELLOW         = 0x37, // #ffea8f
         YELLOW              = 0x38, // #fff782
         YELLOW_GREEN        = 0x39, // #c8e67c
@@ -144,7 +145,7 @@ struct Palette : Block {
         CYAN                = 0x2c, // #00ffff
         SKY_BLUE            = 0x32, // #8aebff
         NEON_BLUE           = 0x21, // #00d4ff
-        FORGET_ME_NOT       = 0x1c, // #008bc7
+        CERULEAN            = 0x1c, // #008bc7
         AZURE               = 0x22, // #3892ff
         BLUE_RIBBON         = 0x11, // #0062ff
         BLUE                = 0x12, // #0040ff
@@ -153,8 +154,8 @@ struct Palette : Block {
         PRUSSIAN_BLUE       = 0x0c, // #003054
         INDIGO              = 0x03, // #3b0087
         VIOLET              = 0x13, // #830fff
-        FLAMINGO            = 0x23, // #e561ff
-        BUBBLE_GUM          = 0x33, // #e498eb
+        PURPLE              = 0x23, // #e561ff
+        LAVENDER            = 0x33, // #e498eb
         PINK                = 0x34, // #ff8ffb
         DEEP_PINK           = 0x25, // #ff3877
         HOT_PINK            = 0x14, // #ff00aa
@@ -165,7 +166,7 @@ struct Palette : Block {
     Palette(uint8* start): Block(start, blockSize) {}
 
     template<uint8 idx>
-    inline constexpr uint8* addr() requires (idx < blockSize / numColors) {
+    inline constexpr uint8* addr() requires (idx < numPalettes) {
         return begin() + idx;
     }
 }
