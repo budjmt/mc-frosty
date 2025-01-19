@@ -1,50 +1,52 @@
 #pragma once
 
-#include "./util.h"
+#include <array>
 
-struct Block {
-    mem_map region;
+#include "util.h"
 
-    Block(uint8* start, usize size): region(start, size) {}
+template<usize Length>
+class alignas(1) Block {
+    alignas(1) std::array<mem, Length> _data;
+public:
+    static constexpr usize size = Length;
 
-    inline constexpr mem* begin() {
-        return region.data();
-    }
-    inline constexpr mem* begin() const {
-        return region.data();
-    }
-
-    inline constexpr mem* end() {
-        return region.data() + region.size();
-    }
-    inline constexpr mem* end() const {
-        return region.data() + region.size();
-    }
-}
-
-struct PatternTable {
-    static constexpr usize blockSize = 256 * PPU::tileSize;
-
-    const std::array<Block, 2> blocks;
-
-    PatternTable(uint8* start): blocks{
-        Block(start, blockSize),
-        Block(start + blockSize, blockSize)
-    } {}
-
-    inline constexpr mem* begin() {
-        return blocks[0].begin();
-    }
-    inline constexpr mem* begin() const {
-        return blocks[0].begin();
+    inline constexpr decltype(auto) data(this auto& self) {
+        return self._data.data();
     }
 
-    inline constexpr mem* end() {
-        return blocks[blocks.size() - 1].end();
+    inline constexpr decltype(auto) begin(this auto& self) {
+        return self.data();
     }
-    inline constexpr mem* end() const {
-        return blocks[blocks.size() - 1].end();
+    inline constexpr decltype(auto) end(this auto& self) {
+        return self.begin() + size;
     }
+
+    inline constexpr decltype(auto) operator[](this auto& self, usize idx) {
+        return self._data[idx];
+    }
+};
+
+struct PPUConstants {
+    // pixels represent palette indices
+    // each tile is made up of 2 planes, lower and upper
+    // each pixel in the tile has one bit in the same position in each plane
+    // the lower color bit is in the lower plane, and the upper bit is in the upper plane
+    static constexpr uint8 pixelBits = 2;
+    // Tiles are 8x8 pixel squares
+    static constexpr uint8 tilePixelWidth = 8;
+
+    static constexpr uint8 tileSize = tilePixelWidth * tilePixelWidth * pixelBits / 8;
+
+    static constexpr uint8 screenTileWidth = 32;
+    static constexpr uint8 screenTileHeight = 30;
+};
+
+struct alignas(1) PatternTable {
+    static constexpr usize numTiles = 256;
+
+    static constexpr usize blockSize = numTiles * PPUConstants::tileSize;
+
+    alignas(1) const std::array<::Block<blockSize>, 2> blocks;
 
     enum class Block : uint8 {
         LEFT = 0,
@@ -56,7 +58,13 @@ struct PatternTable {
         UPPER = 1
     };
 
-    inline constexpr uint8* addr(Block idx, Plane plane, uint8 tileIdx, uint8 row) {
+    inline constexpr decltype(auto) addr(
+        this auto& self,
+        Block idx,
+        Plane plane,
+        uint8 tileIdx,
+        uint8 row
+    ) {
         struct PT {
             uint8 padding: 4 = 0;
             uint8 tile: 8;
@@ -65,42 +73,48 @@ struct PatternTable {
         };
         static_assert(Address<PT>);
 
-        const Address addr = {
+        const PT addr = {
             0,
             tileIdx,
             static_cast<uint8>(plane),
             row
         };
 
-        const auto& block = blocks[static_cast<uint8>(idx)];
+        const auto& block = self.blocks[static_cast<uint8>(idx)];
         const auto offset = reinterpret_cast<uint8>(addr);
 
         return block.data() + offset;
     }
-}
+};
 
-struct AttributeTable : Block {
-    static constexpr usize blockSize = 64; // 1 byte per 4x4 tile area
+// 1 byte per 4x4 tile area
+struct alignas(1) AttributeTable : Block<64> {
+    // 0 is always transparent/background
+};
 
-    AttributeTable(uint8* start): Block(start, blockSize) {}
-}
-
-struct NameTable : Block {
-    static constexpr usize blockSize = 32 * 30; // 1 byte per tile
-
+// 1 byte per screen tile
+struct alignas(1) NameTable : Block<
+    PPUConstants::screenTileWidth *
+    PPUConstants::screenTileHeight
+> {
     AttributeTable attrTable;
 
-    NameTable(uint8* start):
-        Block(start, blockSize),
-        attrTable(block.end()) {}
-}
+    inline constexpr decltype(auto) addr(this auto& self, uint8 x, uint8 y) {
+        // x is 5 bits because it's 32 tiles wide
+        return self.begin() + ((y << 5) | x);
+    }
+};
 
-struct Palette : Block {
-    static constexpr usize blockSize = numPalettes * numColors; // each byte is a color index
+struct PaletteConstants {
+    static constexpr uint8 numColors = 4;
+    static constexpr uint8 numPalettes = 4;
+};
 
-    static constexpr usize numColors = 4;
-    static constexpr usize numPalettes = 4;
-
+// each byte is a color index
+struct alignas(1) Palette : PaletteConstants, Block<
+    PaletteConstants::numColors *
+    PaletteConstants::numPalettes
+> {
     // colors vary based on the hardware in each unit,
     // so the color codes are just approximations
     enum class Color : uint16 {
@@ -163,34 +177,70 @@ struct Palette : Block {
         SALMON              = 0x35, // #ff94a2
     };
 
-    Palette(uint8* start): Block(start, blockSize) {}
-
     template<uint8 idx>
-    inline constexpr uint8* addr() requires (idx < numPalettes) {
-        return begin() + idx;
+    inline constexpr decltype(auto) addr(this auto& self) requires (idx < numPalettes) {
+        return self.begin() + idx;
     }
-}
+};
 
-struct PPU {
-    // pixels represent palette indices
-    // 0 is always transparent/background
-    static constexpr uint8 pixelBits = 2;
-    // a tile is 8x8 pixels and 16 bytes
-    // each tile is made up of 2 8 byte planes, lower and upper
-    // each pixel in the tile has one bit in the same position in each plane
-    // the lower color bit is in the lower plane,
-    // the upper color bit is in the upper plane
-    static constexpr uint8 tileSize = pixelBits * 8 * 8 / 8;
+struct alignas(1) PPU : PPUConstants {
+    // wait for the next TV-level frame (depending on PAL or NTSC)
+    inline void waitNMI() const {
+        ppu_wait_nmi();
+    }
 
-    PatternTable    patternTable(to_ptr(0x0000));
+    // TODO:
+    inline void setMask(uint8 mask) {
+        ppu_mask(mask);
+    }
 
-    NameTable       nameTable0(patternTable.end());
-    NameTable       nameTable1(nameTable0.attrTable.end());
-    NameTable       nameTable2(nameTable1.attrTable.end());
-    NameTable       nameTable3(nameTable2.attrTable.end());
+    enum class Display : uint8 {
+        BG = 0x01,
+        SPR = 0x10,
+        ALL = BG | SPR
+    };
 
-    Block           padding(nameTable3.attrTable.end(), 0xf00);
+    // enable parts of the render
+    template<Display mode = Display::ALL>
+    inline void on() {
+        if constexpr (mode == Display::ALL) {
+            ppu_on_all();
+        }
+        else if (mode == Display::BG) {
+            ppu_on_bg();
+        }
+        else if (mode == Display::SPR) {
+            ppu_on_spr();
+        }
+        else {
+            static_assert(false, "Invalid display mode");
+        }
+    }
 
-    Palette         bgPalette(padding.end());
-    Palette         spritePalette(bgPalette.end());
-}
+    // Disable all rendering, NMI is still enabled
+    inline void off() {
+        ppu_off();
+    }
+
+    // Set the color emphasis bits
+    inline void colorEmphasis(uint8 color) {
+        color_emphasis(color);
+    }
+
+    enum class TVType : uint8 {
+        PAL = 0,
+        NTSC = 1
+    };
+    inline TVType getTV() const {
+        return ppu_system() == 0 ? TVType::PAL : TVType::NTSC;
+    }
+
+    PatternTable    patternTable;
+    NameTable       nameTable0;
+    NameTable       nameTable1;
+    NameTable       nameTable2;
+    NameTable       nameTable3;
+    alignas(1) Block<0xf00> padding;
+    Palette         bgPalette;
+    Palette         spritePalette;
+};
